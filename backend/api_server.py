@@ -1,6 +1,6 @@
 """
 Flask REST API Server for AI Surveillance System
-Provides endpoints for React frontend
+Provides endpoints for React frontendfghjk
 """
 from flask import Flask, request, jsonify, send_file, Response
 from flask_cors import CORS
