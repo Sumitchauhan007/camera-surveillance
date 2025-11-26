@@ -1,0 +1,28 @@
+# AI Surveillance Camera System - Requirements
+
+# Core dependencies
+opencv-python>=4.8.0
+numpy>=1.24.0
+insightface>=0.7.3
+onnxruntime>=1.16.0
+
+# Web API dependencies
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# Database
+# sqlite3 is built into Python
+
+# GUI dependencies
+Pillow>=10.0.0
+
+# Optional: For better performance
+# onnxruntime-gpu>=1.16.0  # Uncomment for GPU support
+
+# Optional: For notifications
+# win10toast>=0.9  # Windows notifications
+
+# Additional ML dependencies (installed with insightface)
+# opencv-contrib-python>=4.8.0
+# scikit-learn>=1.3.0
+# scikit-image>=0.21.0
