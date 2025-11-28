@@ -249,6 +249,8 @@ def add_student():
         if not name or not image_data:
             return jsonify({'success': False, 'message': 'Name and image required'})
         
+        print(f"📝 Adding student: {name}")
+        
         # Decode base64 image
         if image_data.startswith('data:image'):
             image_data = image_data.split(',')[1]
@@ -261,24 +263,45 @@ def add_student():
         filename = f"{name.replace(' ', '_')}_{timestamp}.jpg"
         image_path = os.path.join(config.KNOWN_FACES_DIR, filename)
         image.save(image_path)
+        print(f"💾 Saved image to: {image_path}")
         
         # Convert to OpenCV format for face detection
         img_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
         
         # Add to face detector
+        print(f"🔍 Adding face to detector...")
         success = face_detector.add_known_face(name, image_path)
         
         if not success:
             os.remove(image_path)
             return jsonify({'success': False, 'message': 'No face detected in image or multiple faces found'})
         
+        print(f"✅ Face added to detector")
+        
         # Add to database
-        db.add_known_person(name, image_path, notes)
+        print(f"💾 Adding {name} to database...")
+        db_success = db.add_known_person(name, image_path, notes)
+        
+        if not db_success:
+            # Student already in database, but might not be in face detector
+            # This is OK - just update the face detector
+            print(f"⚠️ Student {name} already in database, but added to face detector")
+            db.log_system_event("INFO", f"Student face updated: {name}")
+            return jsonify({'success': True, 'message': f'Student {name} face data updated successfully'})
+        
         db.log_system_event("INFO", f"Student added: {name}")
+        print(f"✅ Student {name} added successfully to database")
+        
+        # Verify it was added
+        all_students = db.get_known_persons()
+        print(f"📊 Total students in database after add: {len(all_students)}")
         
         return jsonify({'success': True, 'message': f'Student {name} added successfully'})
     
     except Exception as e:
+        print(f"❌ Error adding student: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'message': str(e)})
 
 @app.route('/api/students/<int:student_id>', methods=['DELETE'])

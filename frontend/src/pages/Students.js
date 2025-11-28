@@ -23,13 +23,19 @@ const Students = () => {
   // Fetch students
   const fetchStudents = async () => {
     try {
+      setLoading(true);
       const response = await studentsAPI.getAll();
+      console.log('Students response:', response.data);
       if (response.data.success) {
-        setStudents(response.data.students);
+        setStudents(response.data.students || []);
+      } else {
+        toast.error('Failed to load students: ' + response.data.message);
       }
     } catch (error) {
       console.error('Failed to fetch students:', error);
       toast.error('Failed to load students');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -178,9 +184,13 @@ const Students = () => {
       {showAddModal && (
         <AddStudentModal
           onClose={() => setShowAddModal(false)}
-          onSuccess={() => {
-            fetchStudents();
+          onSuccess={async () => {
             setShowAddModal(false);
+            // Wait a moment for backend to process
+            setTimeout(async () => {
+              await fetchStudents();
+              toast.success('Student list refreshed');
+            }, 500);
           }}
         />
       )}
@@ -282,14 +292,17 @@ const AddStudentModal = ({ onClose, onSuccess }) => {
       });
 
       if (response.data.success) {
-        toast.success(response.data.message);
+        toast.success(response.data.message || 'Student added successfully');
+        // Close modal and cleanup first
+        stopCamera();
+        // Call success callback to refresh the list
         onSuccess();
       } else {
-        toast.error(response.data.message);
+        toast.error(response.data.message || 'Failed to add student');
       }
     } catch (error) {
-      toast.error('Failed to add student');
-      console.error(error);
+      toast.error('Failed to add student: ' + (error.response?.data?.message || error.message));
+      console.error('Add student error:', error);
     } finally {
       setLoading(false);
     }

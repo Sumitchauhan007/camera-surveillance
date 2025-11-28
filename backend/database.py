@@ -19,11 +19,25 @@ class SurveillanceDB:
     def connect(self):
         """Connect to SQLite database"""
         try:
-            self.conn = sqlite3.connect(self.db_path)
+            # Use check_same_thread=False for Flask multithreading
+            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            self.conn.row_factory = sqlite3.Row  # Enable column access by name
             self.cursor = self.conn.cursor()
             print(f"Database connected: {self.db_path}")
         except sqlite3.Error as e:
             print(f"Database connection error: {e}")
+    
+    def _ensure_connection(self):
+        """Ensure database connection is alive"""
+        try:
+            if self.conn is None:
+                self.connect()
+            else:
+                # Test connection
+                self.conn.execute("SELECT 1")
+        except sqlite3.Error:
+            print("Database connection lost, reconnecting...")
+            self.connect()
     
     def create_tables(self):
         """Create necessary database tables"""
@@ -99,6 +113,7 @@ class SurveillanceDB:
     
     def add_known_person(self, name, image_path=None, notes=None):
         """Add a known person to the database"""
+        self._ensure_connection()
         timestamp = datetime.now().isoformat()
         
         try:
@@ -108,19 +123,33 @@ class SurveillanceDB:
             ''', (name, timestamp, image_path, notes))
             
             self.conn.commit()
+            person_id = self.cursor.lastrowid
+            print(f"✅ Added known person to database: {name} (ID: {person_id})")
+            
+            # Verify the insert
+            self.cursor.execute('SELECT COUNT(*) FROM known_persons WHERE id = ?', (person_id,))
+            count = self.cursor.fetchone()[0]
+            print(f"✅ Verification: Person with ID {person_id} exists: {count == 1}")
+            
             return True
         except sqlite3.IntegrityError:
-            print(f"Person '{name}' already exists in database")
+            print(f"⚠️ Person '{name}' already exists in database")
+            self.conn.rollback()
             return False
         except sqlite3.Error as e:
-            print(f"Error adding known person: {e}")
+            print(f"❌ Error adding known person: {e}")
+            self.conn.rollback()
             return False
     
     def get_known_persons(self):
         """Get list of all known persons"""
+        self._ensure_connection()
+        
         try:
-            self.cursor.execute('SELECT * FROM known_persons ORDER BY name')
-            return self.cursor.fetchall()
+            self.cursor.execute('SELECT * FROM known_persons ORDER BY date_added DESC')
+            results = self.cursor.fetchall()
+            print(f"Retrieved {len(results)} known persons from database")
+            return results
         except sqlite3.Error as e:
             print(f"Error fetching known persons: {e}")
             return []
