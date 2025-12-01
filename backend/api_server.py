@@ -30,7 +30,8 @@ camera_state = {
     'current_frame': None,
     'faces_detected': [],
     'video_writer': None,
-    'recording_path': None
+    'recording_path': None,
+    'detected_persons': {}  # Track last detection time for each person
 }
 
 face_detector = FaceDetector()
@@ -90,6 +91,7 @@ def stop_camera():
         
         camera_state['current_frame'] = None
         camera_state['faces_detected'] = []
+        camera_state['detected_persons'] = {}  # Clear detection history
         
         db.log_system_event("INFO", "Camera stopped via API")
         
@@ -111,8 +113,9 @@ def get_frame():
         return jsonify({'success': False, 'message': 'No frame available'}), 404
     
     try:
-        # Encode frame to JPEG
-        _, buffer = cv2.imencode('.jpg', camera_state['current_frame'])
+        # Encode frame to JPEG with quality optimization
+        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 75]  # Reduced quality for faster transfer
+        _, buffer = cv2.imencode('.jpg', camera_state['current_frame'], encode_param)
         img_base64 = base64.b64encode(buffer).decode('utf-8')
         
         return jsonify({
@@ -496,6 +499,8 @@ def serve_image(filename):
 def process_camera_feed():
     """Process camera feed in background thread"""
     frame_count = 0
+    COOLDOWN_SECONDS = 30  # Don't detect same person again for 30 seconds
+    last_faces = []  # Keep track of last detected faces for continuous drawing
     
     while camera_state['is_running']:
         if camera_state['cap'] is None:
@@ -513,6 +518,8 @@ def process_camera_feed():
             faces = face_detector.detect_faces(frame)
             
             camera_state['faces_detected'] = []
+            current_time = datetime.now()
+            last_faces = []  # Update the list of faces to draw
             
             for face in faces:
                 bbox = face.bbox.astype(int)
@@ -521,10 +528,14 @@ def process_camera_feed():
                 embedding = face_detector.get_face_embedding(face)
                 person_name, similarity = face_detector.recognize_face(embedding)
                 
-                person_id = person_name if person_name else "intruder"
+                person_id = person_name if person_name else f"intruder_{int(current_time.timestamp())}"
                 
-                # Draw on frame
-                frame = face_detector.draw_face_box(frame, face, person_name, similarity)
+                # Store face info for continuous drawing
+                last_faces.append({
+                    'bbox': bbox,
+                    'name': person_name,
+                    'similarity': similarity
+                })
                 
                 # Store detection info
                 camera_state['faces_detected'].append({
@@ -534,25 +545,74 @@ def process_camera_feed():
                     'is_intruder': person_name is None
                 })
                 
-                # Log detection
-                face_image_path = face_detector.save_face_image(frame, face, person_id)
+                # Check if we've already detected this person recently
+                last_detection = camera_state['detected_persons'].get(person_id)
+                should_log = False
                 
-                db.log_detection(
-                    person_id=person_id,
-                    person_name=person_name,
-                    confidence=similarity,
-                    face_image_path=face_image_path,
-                    video_path=camera_state['recording_path'],
-                    camera_id=str(config.CAMERA_ID)
-                )
+                if last_detection is None:
+                    # First time seeing this person
+                    should_log = True
+                else:
+                    # Check if enough time has passed
+                    time_diff = (current_time - last_detection).total_seconds()
+                    if time_diff > COOLDOWN_SECONDS:
+                        should_log = True
                 
-                # Create alert for intruders
-                if not person_name and config.ENABLE_ALERTS:
-                    db.create_alert(
-                        alert_type="INTRUDER",
+                # Only log and save photo if it's a new detection
+                if should_log:
+                    # Save face image
+                    face_image_path = face_detector.save_face_image(frame, face, person_id)
+                    
+                    # Log detection to database
+                    db.log_detection(
                         person_id=person_id,
-                        description=f"Intruder detected at {datetime.now().strftime('%H:%M:%S')}"
+                        person_name=person_name,
+                        confidence=similarity,
+                        face_image_path=face_image_path,
+                        video_path=camera_state['recording_path'],
+                        camera_id=str(config.CAMERA_ID)
                     )
+                    
+                    # Update last detection time
+                    camera_state['detected_persons'][person_id] = current_time
+                    
+                    # Create alert for intruders
+                    if not person_name and config.ENABLE_ALERTS:
+                        db.create_alert(
+                            alert_type="INTRUDER",
+                            person_id=person_id,
+                            description=f"Intruder detected at {current_time.strftime('%H:%M:%S')}"
+                        )
+                    
+                    print(f"📸 Photo saved for: {person_name or 'Unknown'} (similarity: {similarity:.2f})")
+        
+        # Draw bounding boxes on every frame using last detected faces
+        for face_info in last_faces:
+            bbox = face_info['bbox']
+            name = face_info['name']
+            similarity = face_info['similarity']
+            
+            x1, y1, x2, y2 = bbox[0], bbox[1], bbox[2], bbox[3]
+            
+            # Choose color based on recognition
+            if name:
+                color = (0, 255, 0)  # Green for known
+                label = f"{name} ({similarity:.2f})"
+            else:
+                color = (0, 0, 255)  # Red for unknown
+                label = "Unknown"
+            
+            # Draw rectangle
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            
+            # Draw label background
+            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+            cv2.rectangle(frame, (x1, y1 - label_size[1] - 10), 
+                         (x1 + label_size[0], y1), color, -1)
+            
+            # Draw label text
+            cv2.putText(frame, label, (x1, y1 - 5), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
         
         # Draw info overlay
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -611,4 +671,5 @@ if __name__ == '__main__':
     print("  Statistics: /api/statistics")
     print("=" * 50)
     
-    app.run(host='0.0.0.0', port=5000, debug=True, threaded=True)
+    # Run without debug to avoid watchdog restarts that interrupt model loading
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)

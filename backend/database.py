@@ -99,14 +99,17 @@ class SurveillanceDB:
         timestamp = datetime.now().isoformat()
         
         try:
-            self.cursor.execute('''
+            cursor = self.conn.cursor()
+            cursor.execute('''
                 INSERT INTO detection_events 
                 (timestamp, person_id, person_name, confidence, face_image_path, video_path, camera_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (timestamp, person_id, person_name, confidence, face_image_path, video_path, camera_id))
             
             self.conn.commit()
-            return self.cursor.lastrowid
+            lastrowid = cursor.lastrowid
+            cursor.close()
+            return lastrowid
         except sqlite3.Error as e:
             print(f"Error logging detection: {e}")
             return None
@@ -117,19 +120,21 @@ class SurveillanceDB:
         timestamp = datetime.now().isoformat()
         
         try:
-            self.cursor.execute('''
+            cursor = self.conn.cursor()
+            cursor.execute('''
                 INSERT INTO known_persons (name, date_added, image_path, notes)
                 VALUES (?, ?, ?, ?)
             ''', (name, timestamp, image_path, notes))
             
             self.conn.commit()
-            person_id = self.cursor.lastrowid
+            person_id = cursor.lastrowid
             print(f"✅ Added known person to database: {name} (ID: {person_id})")
             
             # Verify the insert
-            self.cursor.execute('SELECT COUNT(*) FROM known_persons WHERE id = ?', (person_id,))
-            count = self.cursor.fetchone()[0]
+            cursor.execute('SELECT COUNT(*) FROM known_persons WHERE id = ?', (person_id,))
+            count = cursor.fetchone()[0]
             print(f"✅ Verification: Person with ID {person_id} exists: {count == 1}")
+            cursor.close()
             
             return True
         except sqlite3.IntegrityError:
@@ -146,8 +151,10 @@ class SurveillanceDB:
         self._ensure_connection()
         
         try:
-            self.cursor.execute('SELECT * FROM known_persons ORDER BY date_added DESC')
-            results = self.cursor.fetchall()
+            cursor = self.conn.cursor()
+            cursor.execute('SELECT * FROM known_persons ORDER BY date_added DESC')
+            results = cursor.fetchall()
+            cursor.close()
             print(f"Retrieved {len(results)} known persons from database")
             return results
         except sqlite3.Error as e:
@@ -159,12 +166,14 @@ class SurveillanceDB:
         timestamp = datetime.now().isoformat()
         
         try:
-            self.cursor.execute('''
+            cursor = self.conn.cursor()
+            cursor.execute('''
                 INSERT INTO system_logs (timestamp, level, message, details)
                 VALUES (?, ?, ?, ?)
             ''', (timestamp, level, message, details))
             
             self.conn.commit()
+            cursor.close()
         except sqlite3.Error as e:
             print(f"Error logging system event: {e}")
     
@@ -173,14 +182,17 @@ class SurveillanceDB:
         timestamp = datetime.now().isoformat()
         
         try:
-            self.cursor.execute('''
+            cursor = self.conn.cursor()
+            cursor.execute('''
                 INSERT INTO alerts 
                 (timestamp, alert_type, person_id, person_name, description)
                 VALUES (?, ?, ?, ?, ?)
             ''', (timestamp, alert_type, person_id, person_name, description))
             
             self.conn.commit()
-            return self.cursor.lastrowid
+            lastrowid = cursor.lastrowid
+            cursor.close()
+            return lastrowid
         except sqlite3.Error as e:
             print(f"Error creating alert: {e}")
             return None
@@ -188,12 +200,15 @@ class SurveillanceDB:
     def get_recent_detections(self, limit=50):
         """Get recent detection events"""
         try:
-            self.cursor.execute('''
+            cursor = self.conn.cursor()
+            cursor.execute('''
                 SELECT * FROM detection_events 
                 ORDER BY timestamp DESC 
                 LIMIT ?
             ''', (limit,))
-            return self.cursor.fetchall()
+            results = cursor.fetchall()
+            cursor.close()
+            return results
         except sqlite3.Error as e:
             print(f"Error fetching recent detections: {e}")
             return []
@@ -201,12 +216,15 @@ class SurveillanceDB:
     def get_detections_by_person(self, person_name):
         """Get all detections for a specific person"""
         try:
-            self.cursor.execute('''
+            cursor = self.conn.cursor()
+            cursor.execute('''
                 SELECT * FROM detection_events 
                 WHERE person_name = ? 
                 ORDER BY timestamp DESC
             ''', (person_name,))
-            return self.cursor.fetchall()
+            results = cursor.fetchall()
+            cursor.close()
+            return results
         except sqlite3.Error as e:
             print(f"Error fetching detections by person: {e}")
             return []
@@ -214,12 +232,15 @@ class SurveillanceDB:
     def get_unacknowledged_alerts(self):
         """Get all unacknowledged alerts"""
         try:
-            self.cursor.execute('''
+            cursor = self.conn.cursor()
+            cursor.execute('''
                 SELECT * FROM alerts 
                 WHERE acknowledged = 0 
                 ORDER BY timestamp DESC
             ''')
-            return self.cursor.fetchall()
+            results = cursor.fetchall()
+            cursor.close()
+            return results
         except sqlite3.Error as e:
             print(f"Error fetching alerts: {e}")
             return []
@@ -227,13 +248,15 @@ class SurveillanceDB:
     def acknowledge_alert(self, alert_id):
         """Mark an alert as acknowledged"""
         try:
-            self.cursor.execute('''
+            cursor = self.conn.cursor()
+            cursor.execute('''
                 UPDATE alerts 
                 SET acknowledged = 1 
                 WHERE id = ?
             ''', (alert_id,))
             
             self.conn.commit()
+            cursor.close()
             return True
         except sqlite3.Error as e:
             print(f"Error acknowledging alert: {e}")
@@ -244,26 +267,29 @@ class SurveillanceDB:
         stats = {}
         
         try:
+            cursor = self.conn.cursor()
+            
             # Total detections
-            self.cursor.execute('SELECT COUNT(*) FROM detection_events')
-            stats['total_detections'] = self.cursor.fetchone()[0]
+            cursor.execute('SELECT COUNT(*) FROM detection_events')
+            stats['total_detections'] = cursor.fetchone()[0]
             
             # Known persons count
-            self.cursor.execute('SELECT COUNT(*) FROM known_persons')
-            stats['known_persons'] = self.cursor.fetchone()[0]
+            cursor.execute('SELECT COUNT(*) FROM known_persons')
+            stats['known_persons'] = cursor.fetchone()[0]
             
             # Unacknowledged alerts
-            self.cursor.execute('SELECT COUNT(*) FROM alerts WHERE acknowledged = 0')
-            stats['pending_alerts'] = self.cursor.fetchone()[0]
+            cursor.execute('SELECT COUNT(*) FROM alerts WHERE acknowledged = 0')
+            stats['pending_alerts'] = cursor.fetchone()[0]
             
             # Detections today
             today = datetime.now().date().isoformat()
-            self.cursor.execute('''
+            cursor.execute('''
                 SELECT COUNT(*) FROM detection_events 
                 WHERE date(timestamp) = ?
             ''', (today,))
-            stats['detections_today'] = self.cursor.fetchone()[0]
+            stats['detections_today'] = cursor.fetchone()[0]
             
+            cursor.close()
         except sqlite3.Error as e:
             print(f"Error fetching statistics: {e}")
         

@@ -5,17 +5,17 @@ import os
 
 # Camera Settings
 CAMERA_ID = 0  # 0 for default webcam, or use RTSP URL for IP camera
-CAMERA_WIDTH = 1280
-CAMERA_HEIGHT = 720
+CAMERA_WIDTH = 640  # Reduced for better performance
+CAMERA_HEIGHT = 480  # Reduced for better performance
 CAMERA_FPS = 30
 
 # Face Detection Settings
 DETECTION_CONFIDENCE = 0.5  # Minimum confidence for face detection
 FACE_SIZE_THRESHOLD = 30  # Minimum face size in pixels
-DETECTION_INTERVAL = 1  # Detect faces every N frames (1 = every frame)
+DETECTION_INTERVAL = 5  # Detect faces every N frames (higher = better performance, lower = more responsive)
 
 # Face Recognition Settings
-RECOGNITION_THRESHOLD = 0.6  # Similarity threshold for face recognition
+RECOGNITION_THRESHOLD = 0.4  # Similarity threshold for face recognition (lower = more lenient)
 ENABLE_RECOGNITION = True
 
 # Recording Settings

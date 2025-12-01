@@ -169,7 +169,7 @@ const Dashboard = () => {
   // Update frame periodically
   useEffect(() => {
     if (cameraStatus.is_running) {
-      const interval = setInterval(fetchFrame, 500); // Update every 500ms
+      const interval = setInterval(fetchFrame, 500); // Update every 500ms for smooth video
       return () => clearInterval(interval);
     }
   }, [cameraStatus.is_running, fetchFrame]);
