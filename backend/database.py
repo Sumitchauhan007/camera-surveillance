@@ -91,7 +91,17 @@ class SurveillanceDB:
             )
         ''')
         
+        # Settings table
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        ''')
+        
         self.conn.commit()
+        self._initialize_default_settings()
     
     def log_detection(self, person_id, person_name=None, confidence=0, 
                      face_image_path=None, video_path=None, camera_id="0"):
@@ -294,6 +304,121 @@ class SurveillanceDB:
             print(f"Error fetching statistics: {e}")
         
         return stats
+    
+    def _initialize_default_settings(self):
+        """Initialize default settings if they don't exist"""
+        default_settings = {
+            'camera_id': '0',
+            'camera_width': '640',
+            'camera_height': '480',
+            'detection_interval': '5',
+            'recognition_threshold': '0.4',
+            'enable_alerts': 'true',
+            'alert_cooldown': '300',
+            'enable_recording': 'false',
+            'recording_duration': '30',
+            'max_storage_gb': '50'
+        }
+        
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM settings')
+            count = cursor.fetchone()[0]
+            
+            # Only initialize if settings table is empty
+            if count == 0:
+                timestamp = datetime.now().isoformat()
+                for key, value in default_settings.items():
+                    cursor.execute('''
+                        INSERT INTO settings (key, value, updated_at)
+                        VALUES (?, ?, ?)
+                    ''', (key, value, timestamp))
+                
+                self.conn.commit()
+                print("✅ Default settings initialized")
+            
+            cursor.close()
+        except sqlite3.Error as e:
+            print(f"Error initializing default settings: {e}")
+    
+    def get_settings(self):
+        """Get all settings as a dictionary"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('SELECT key, value FROM settings')
+            results = cursor.fetchall()
+            cursor.close()
+            
+            # Convert to dictionary
+            settings = {}
+            for row in results:
+                key = row[0]
+                value = row[1]
+                
+                # Convert string values to appropriate types
+                if value.lower() in ('true', 'false'):
+                    settings[key] = value.lower() == 'true'
+                elif value.replace('.', '', 1).isdigit():
+                    # Check if it's a float or int
+                    if '.' in value:
+                        settings[key] = float(value)
+                    else:
+                        settings[key] = int(value)
+                else:
+                    settings[key] = value
+            
+            return settings
+        except sqlite3.Error as e:
+            print(f"Error fetching settings: {e}")
+            return {}
+    
+    def update_settings(self, settings_dict):
+        """Update multiple settings at once"""
+        try:
+            cursor = self.conn.cursor()
+            timestamp = datetime.now().isoformat()
+            
+            for key, value in settings_dict.items():
+                # Convert value to string for storage
+                value_str = str(value).lower() if isinstance(value, bool) else str(value)
+                
+                cursor.execute('''
+                    INSERT OR REPLACE INTO settings (key, value, updated_at)
+                    VALUES (?, ?, ?)
+                ''', (key, value_str, timestamp))
+            
+            self.conn.commit()
+            cursor.close()
+            print(f"✅ Updated {len(settings_dict)} settings")
+            return True
+        except sqlite3.Error as e:
+            print(f"Error updating settings: {e}")
+            self.conn.rollback()
+            return False
+    
+    def get_setting(self, key, default=None):
+        """Get a single setting value"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('SELECT value FROM settings WHERE key = ?', (key,))
+            result = cursor.fetchone()
+            cursor.close()
+            
+            if result:
+                value = result[0]
+                # Convert string to appropriate type
+                if value.lower() in ('true', 'false'):
+                    return value.lower() == 'true'
+                elif value.replace('.', '', 1).isdigit():
+                    if '.' in value:
+                        return float(value)
+                    else:
+                        return int(value)
+                return value
+            return default
+        except sqlite3.Error as e:
+            print(f"Error fetching setting {key}: {e}")
+            return default
     
     def close(self):
         """Close database connection"""

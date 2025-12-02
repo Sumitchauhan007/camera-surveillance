@@ -634,6 +634,98 @@ def process_camera_feed():
         
         time.sleep(0.001)  # Small delay
 
+# ============= CAMERA DETECTION =============
+
+@app.route('/api/cameras/detect', methods=['GET'])
+def detect_cameras():
+    """Detect available cameras on the system"""
+    try:
+        available_cameras = []
+        
+        # Test first 10 camera indices
+        for i in range(10):
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                ret, frame = cap.read()
+                if ret:
+                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    available_cameras.append({
+                        'id': str(i),
+                        'name': f'Camera {i}',
+                        'resolution': f'{width}x{height}',
+                        'type': 'USB/Built-in'
+                    })
+                cap.release()
+        
+        return jsonify({
+            'success': True,
+            'cameras': available_cameras,
+            'count': len(available_cameras)
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/cameras/test', methods=['POST'])
+def test_camera():
+    """Test a specific camera"""
+    try:
+        data = request.get_json()
+        camera_id = data.get('camera_id', '0')
+        
+        # Try to convert to int if it's a number
+        try:
+            camera_id_int = int(camera_id)
+        except:
+            camera_id_int = camera_id  # Use as string (RTSP URL)
+        
+        cap = cv2.VideoCapture(camera_id_int)
+        
+        if not cap.isOpened():
+            return jsonify({
+                'success': False,
+                'message': 'Unable to open camera'
+            })
+        
+        ret, frame = cap.read()
+        cap.release()
+        
+        if not ret:
+            return jsonify({
+                'success': False,
+                'message': 'Camera opened but could not read frame'
+            })
+        
+        # Get camera properties
+        cap = cv2.VideoCapture(camera_id_int)
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        cap.release()
+        
+        # Encode a test frame
+        _, buffer = cv2.imencode('.jpg', frame)
+        img_base64 = base64.b64encode(buffer).decode('utf-8')
+        
+        return jsonify({
+            'success': True,
+            'message': 'Camera working properly',
+            'properties': {
+                'width': width,
+                'height': height,
+                'fps': fps
+            },
+            'test_frame': f'data:image/jpeg;base64,{img_base64}'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
 # ============= SERVER INFO =============
 
 @app.route('/api/health', methods=['GET'])
@@ -657,6 +749,71 @@ def get_config():
         'enable_recording': config.ENABLE_RECORDING,
         'enable_alerts': config.ENABLE_ALERTS
     })
+
+@app.route('/api/settings', methods=['GET'])
+def get_settings():
+    """Get all settings from database"""
+    try:
+        settings = db.get_settings()
+        return jsonify({
+            'success': True,
+            'settings': settings
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/settings', methods=['PUT'])
+def update_settings():
+    """Update settings in database"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'No settings data provided'
+            }), 400
+        
+        # Validate settings
+        valid_keys = [
+            'camera_id', 'camera_width', 'camera_height',
+            'detection_interval', 'recognition_threshold',
+            'enable_alerts', 'alert_cooldown',
+            'enable_recording', 'recording_duration', 'max_storage_gb'
+        ]
+        
+        # Filter only valid settings
+        settings_to_update = {k: v for k, v in data.items() if k in valid_keys}
+        
+        if not settings_to_update:
+            return jsonify({
+                'success': False,
+                'error': 'No valid settings provided'
+            }), 400
+        
+        # Update in database
+        success = db.update_settings(settings_to_update)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Settings updated successfully',
+                'updated_count': len(settings_to_update)
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to update settings'
+            }), 500
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 if __name__ == '__main__':
     print("=" * 50)

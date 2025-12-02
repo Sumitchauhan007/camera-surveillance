@@ -36,6 +36,8 @@ class SurveillanceCamera:
         # Detection tracking
         self.last_detection_time = {}
         self.detected_persons = set()
+        self.photo_taken_for = {}  # Track which persons have had photos taken
+        self.person_still_present = {}  # Track if person is still in frame
         
         # FPS calculation
         self.fps = 0
@@ -124,6 +126,9 @@ class SurveillanceCamera:
         current_time = datetime.now()
         faces_detected = len(faces) > 0
         
+        # Track which persons are currently in frame
+        current_frame_persons = set()
+        
         # Start recording if faces detected and recording is enabled
         if faces_detected and config.ENABLE_RECORDING and config.RECORD_ON_DETECTION:
             if not self.is_recording:
@@ -150,17 +155,27 @@ class SurveillanceCamera:
                 if person_name:
                     person_id = person_name
             
+            # Add to current frame persons
+            current_frame_persons.add(person_id)
+            
             # Draw face box on frame
             frame = self.face_detector.draw_face_box(frame, face, person_name, similarity)
             
-            # Log detection (with cooldown)
-            should_log = True
-            if person_id in self.last_detection_time:
-                time_diff = (current_time - self.last_detection_time[person_id]).total_seconds()
-                if time_diff < 5:  # Log same person every 5 seconds
-                    should_log = False
+            # Check if photo already taken for this person in current detection session
+            take_photo = False
+            if person_id not in self.photo_taken_for:
+                # First time seeing this person - take photo
+                take_photo = True
+                self.photo_taken_for[person_id] = current_time
+            elif person_id not in self.person_still_present:
+                # Person returned after leaving - take new photo
+                take_photo = True
+                self.photo_taken_for[person_id] = current_time
             
-            if should_log:
+            # Mark person as present in this frame
+            self.person_still_present[person_id] = current_time
+            
+            if take_photo:
                 # Save face image
                 face_image_path = self.face_detector.save_face_image(frame, face, person_id)
                 
@@ -174,8 +189,6 @@ class SurveillanceCamera:
                     camera_id=str(config.CAMERA_ID)
                 )
                 
-                self.last_detection_time[person_id] = current_time
-                
                 # Create alert for unknown faces
                 if not person_name and config.ENABLE_ALERTS and config.UNKNOWN_FACE_ALERT:
                     self.db.create_alert(
@@ -184,8 +197,21 @@ class SurveillanceCamera:
                         description=f"Unknown person detected at {current_time.strftime('%H:%M:%S')}"
                     )
                 
-                print(f"[{current_time.strftime('%H:%M:%S')}] Detected: {person_name or 'Unknown'} "
+                print(f"[{current_time.strftime('%H:%M:%S')}] Photo captured: {person_name or 'Unknown'} "
                       f"(Confidence: {similarity:.2f})")
+        
+        # Clean up persons who are no longer in frame (not seen for 5 seconds)
+        persons_to_remove = []
+        for person_id, last_seen in list(self.person_still_present.items()):
+            if person_id not in current_frame_persons:
+                time_diff = (current_time - last_seen).total_seconds()
+                if time_diff > 5:  # Person hasn't been seen for 5 seconds
+                    persons_to_remove.append(person_id)
+        
+        for person_id in persons_to_remove:
+            del self.person_still_present[person_id]
+            if person_id in self.photo_taken_for:
+                del self.photo_taken_for[person_id]
         
         # Stop recording if no faces and max duration reached
         if self.is_recording:

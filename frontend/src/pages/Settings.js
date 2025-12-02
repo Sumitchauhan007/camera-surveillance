@@ -1,18 +1,91 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import {
   Settings as SettingsIcon,
   Camera,
   Shield,
   Bell,
-  Save
+  Save,
+  RefreshCw
 } from 'lucide-react';
+import api from '../services/api';
 import './Settings.css';
 
 const Settings = () => {
-  const handleSave = () => {
-    toast.success('Settings saved successfully');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [settings, setSettings] = useState({
+    camera_id: '0',
+    camera_width: 640,
+    camera_height: 480,
+    detection_interval: 5,
+    recognition_threshold: 0.4,
+    enable_alerts: true,
+    alert_cooldown: 300,
+    enable_recording: false,
+    recording_duration: 30,
+    max_storage_gb: 50
+  });
+
+  // Load settings from backend on mount
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  const loadSettings = async () => {
+    try {
+      setLoading(true);
+      const response = await api.get('/settings');
+      
+      if (response.data.success) {
+        setSettings(response.data.settings);
+        toast.info('Settings loaded');
+      } else {
+        toast.error('Failed to load settings');
+      }
+    } catch (error) {
+      console.error('Error loading settings:', error);
+      toast.error('Error loading settings: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const handleChange = (key, value) => {
+    setSettings(prev => ({
+      ...prev,
+      [key]: value
+    }));
+  };
+
+  const handleSave = async () => {
+    try {
+      setSaving(true);
+      const response = await api.put('/settings', settings);
+      
+      if (response.data.success) {
+        toast.success(`Settings saved successfully (${response.data.updated_count} settings updated)`);
+      } else {
+        toast.error('Failed to save settings: ' + response.data.error);
+      }
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      toast.error('Error saving settings: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="settings-page">
+        <div className="page-header">
+          <h1>Settings</h1>
+          <p className="subtitle">Loading settings...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="settings-page">
@@ -21,6 +94,10 @@ const Settings = () => {
           <h1>Settings</h1>
           <p className="subtitle">Configure system parameters and preferences</p>
         </div>
+        <button className="refresh-btn" onClick={loadSettings} disabled={loading}>
+          <RefreshCw size={20} />
+          Reload
+        </button>
       </div>
 
       <div className="settings-grid">
@@ -33,24 +110,32 @@ const Settings = () => {
 
           <div className="setting-item">
             <label>Camera ID</label>
-            <input type="text" defaultValue="0" placeholder="0 or RTSP URL" />
+            <input 
+              type="text" 
+              value={settings.camera_id}
+              onChange={(e) => handleChange('camera_id', e.target.value)}
+              placeholder="0 or RTSP URL" 
+            />
             <p className="setting-hint">Camera device ID or RTSP stream URL</p>
           </div>
 
           <div className="setting-row">
             <div className="setting-item">
               <label>Resolution Width</label>
-              <input type="number" defaultValue="1280" />
+              <input 
+                type="number" 
+                value={settings.camera_width}
+                onChange={(e) => handleChange('camera_width', parseInt(e.target.value) || 640)}
+              />
             </div>
             <div className="setting-item">
               <label>Resolution Height</label>
-              <input type="number" defaultValue="720" />
+              <input 
+                type="number" 
+                value={settings.camera_height}
+                onChange={(e) => handleChange('camera_height', parseInt(e.target.value) || 480)}
+              />
             </div>
-          </div>
-
-          <div className="setting-item">
-            <label>Frame Rate (FPS)</label>
-            <input type="number" defaultValue="30" min="1" max="60" />
           </div>
         </div>
 
@@ -62,38 +147,30 @@ const Settings = () => {
           </div>
 
           <div className="setting-item">
-            <label>Detection Confidence Threshold</label>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              defaultValue="0.5"
-            />
-            <p className="setting-hint">Minimum confidence for face detection (0.5)</p>
-          </div>
-
-          <div className="setting-item">
             <label>Recognition Threshold</label>
             <input
               type="range"
-              min="0"
-              max="1"
+              min="0.1"
+              max="0.9"
               step="0.05"
-              defaultValue="0.6"
+              value={settings.recognition_threshold}
+              onChange={(e) => handleChange('recognition_threshold', parseFloat(e.target.value))}
             />
-            <p className="setting-hint">Similarity threshold for face recognition (0.6)</p>
+            <p className="setting-hint">
+              Similarity threshold for face recognition ({settings.recognition_threshold.toFixed(2)})
+            </p>
           </div>
 
           <div className="setting-item">
-            <label>Detection Interval (frames)</label>
-            <input type="number" defaultValue="1" min="1" max="10" />
-            <p className="setting-hint">Process every Nth frame for better performance</p>
-          </div>
-
-          <div className="setting-item">
-            <label>Minimum Face Size (pixels)</label>
-            <input type="number" defaultValue="30" min="10" max="200" />
+            <label>Detection Interval (seconds)</label>
+            <input 
+              type="number" 
+              value={settings.detection_interval}
+              onChange={(e) => handleChange('detection_interval', parseInt(e.target.value) || 5)}
+              min="1" 
+              max="30" 
+            />
+            <p className="setting-hint">Time between detection cycles</p>
           </div>
         </div>
 
@@ -106,21 +183,24 @@ const Settings = () => {
 
           <div className="setting-item">
             <label className="checkbox-label">
-              <input type="checkbox" defaultChecked />
+              <input 
+                type="checkbox" 
+                checked={settings.enable_alerts}
+                onChange={(e) => handleChange('enable_alerts', e.target.checked)}
+              />
               <span>Enable Alerts</span>
             </label>
           </div>
 
           <div className="setting-item">
-            <label className="checkbox-label">
-              <input type="checkbox" defaultChecked />
-              <span>Alert on Unknown Person</span>
-            </label>
-          </div>
-
-          <div className="setting-item">
             <label>Alert Cooldown (seconds)</label>
-            <input type="number" defaultValue="60" min="10" max="300" />
+            <input 
+              type="number" 
+              value={settings.alert_cooldown}
+              onChange={(e) => handleChange('alert_cooldown', parseInt(e.target.value) || 300)}
+              min="10" 
+              max="3600" 
+            />
             <p className="setting-hint">Minimum time between alerts for the same person</p>
           </div>
         </div>
@@ -134,30 +214,35 @@ const Settings = () => {
 
           <div className="setting-item">
             <label className="checkbox-label">
-              <input type="checkbox" defaultChecked />
+              <input 
+                type="checkbox" 
+                checked={settings.enable_recording}
+                onChange={(e) => handleChange('enable_recording', e.target.checked)}
+              />
               <span>Enable Recording</span>
             </label>
           </div>
 
           <div className="setting-item">
-            <label className="checkbox-label">
-              <input type="checkbox" defaultChecked />
-              <span>Record Only on Detection</span>
-            </label>
+            <label>Recording Duration (seconds)</label>
+            <input 
+              type="number" 
+              value={settings.recording_duration}
+              onChange={(e) => handleChange('recording_duration', parseInt(e.target.value) || 30)}
+              min="10" 
+              max="600" 
+            />
           </div>
 
           <div className="setting-item">
-            <label>Max Recording Duration (seconds)</label>
-            <input type="number" defaultValue="300" min="60" max="3600" />
-          </div>
-
-          <div className="setting-item">
-            <label>Video Codec</label>
-            <select defaultValue="mp4v">
-              <option value="mp4v">MP4V</option>
-              <option value="XVID">XVID</option>
-              <option value="H264">H264</option>
-            </select>
+            <label>Max Storage (GB)</label>
+            <input 
+              type="number" 
+              value={settings.max_storage_gb}
+              onChange={(e) => handleChange('max_storage_gb', parseInt(e.target.value) || 50)}
+              min="1" 
+              max="1000" 
+            />
           </div>
         </div>
 
@@ -200,20 +285,18 @@ const Settings = () => {
             platform powered by InsightFace and RetinaFace. It provides real-time
             monitoring, student management, intruder detection, and detailed reporting.
           </p>
-
-          <div className="about-links">
-            <button className="link-btn">Documentation</button>
-            <button className="link-btn">Support</button>
-            <button className="link-btn">License</button>
-          </div>
         </div>
       </div>
 
       {/* Save Button */}
       <div className="settings-actions">
-        <button className="save-btn" onClick={handleSave}>
+        <button 
+          className="save-btn" 
+          onClick={handleSave}
+          disabled={saving}
+        >
           <Save size={20} />
-          Save Settings
+          {saving ? 'Saving...' : 'Save Settings'}
         </button>
       </div>
     </div>
@@ -221,3 +304,4 @@ const Settings = () => {
 };
 
 export default Settings;
+
