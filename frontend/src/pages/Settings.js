@@ -101,7 +101,7 @@ const Settings = () => {
       </div>
 
       <div className="settings-grid">
-        {/* Camera Settings */}
+        {/* Camera Settings  need to be changed*/}
         <div className="settings-section">
           <div className="section-header">
             <Camera size={24} />
