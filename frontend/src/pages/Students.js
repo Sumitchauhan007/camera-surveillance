@@ -48,7 +48,7 @@ const Students = () => {
     student.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Delete student
+  // Delete student with confirmation
   const handleDeleteStudent = async (studentId, studentName) => {
     if (!window.confirm(`Are you sure you want to delete ${studentName}?`)) {
       return;
