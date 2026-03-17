@@ -43,7 +43,7 @@ const Students = () => {
     fetchStudents();
   }, []);
 
-  // Filter students based on search
+  // Filter students based on search page
   const filteredStudents = students.filter(student =>
     student.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
