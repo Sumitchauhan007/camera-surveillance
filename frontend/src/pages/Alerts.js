@@ -112,7 +112,7 @@ const Alerts = () => {
         </button>
       </div>
 
-      {/* Alerts List  addeed comments*/}
+      {/* Alerts List   comments*/}
       <div className="alerts-list">
         {filteredAlerts.length === 0 ? (
           <div className="empty-state">
